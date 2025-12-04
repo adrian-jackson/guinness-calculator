@@ -48,12 +48,12 @@ while True:
         break
 
     # Run YOLO
-    can_results = can_kp_model(frame, verbose=False)
+    kp_results = can_kp_model(frame, verbose=False)
 
     annotated = frame.copy()
 
-    if len(results) > 0:
-        result = results[0]
+    if len(kp_results) > 0:
+        result = kp_results[0]
 
         # YOLO keypoints shape: (num_objects, num_keypoints, 2)
         if result.keypoints is not None:
