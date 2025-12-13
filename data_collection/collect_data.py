@@ -3,10 +3,10 @@ import os
 from datetime import datetime
 
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 
 #edit this for different datatypes
-SAVE_DIR = os.path.join("angle_data",f"{datetime.now().strftime("%Y%m%d_%H%M%S")}")
+SAVE_DIR = os.path.join("guinness_data",f"{datetime.now().strftime("%Y%m%d_%H%M%S")}")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 frame_count = 0
