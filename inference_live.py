@@ -27,6 +27,11 @@ running = True
 frame_lock = threading.Lock()
 result_lock = threading.Lock()
 
+CLASS_NAMES = {
+    0: "can",
+    1: "glass"
+}
+
 def inference_loop():
     global latest_result
 
@@ -36,16 +41,41 @@ def inference_loop():
                 continue
             frame = latest_frame.copy()
 
-        # Run inference
         results = model.infer(frame, confidence=0.75)[0]
 
         detections = sv.Detections.from_inference(results)
         keypoints = sv.KeyPoints.from_inference(results)
 
-        with result_lock:
-            latest_result = (detections, keypoints)
+        angles = []  # one angle per detection
 
-        # Optional small sleep to avoid maxing CPU
+        for i in range(len(detections)):
+            class_id = detections.class_id[i]
+            class_name = CLASS_NAMES.get(class_id)
+
+            # Only compute for can & glass
+            if class_name not in ("can", "glass"):
+                angles.append(None)
+                continue
+
+            kp = keypoints.xy[i]
+
+            # Safety check
+            if kp.shape[0] < 2:
+                angles.append(None)
+                continue
+
+            x1, y1 = kp[0]
+            x2, y2 = kp[1]
+
+            dx = x2 - x1
+            dy = y2 - y1
+
+            angle_deg = np.degrees(np.atan2(dy, dx))
+            angles.append(angle_deg)
+
+        with result_lock:
+            latest_result = (detections, keypoints, angles)
+
         time.sleep(0.001)
 
 # Start inference thread
@@ -57,21 +87,41 @@ while True:
     if not ret:
         break
 
-    # Update frame for inference
     with frame_lock:
         latest_frame = frame
 
     annotated = frame.copy()
 
-    # Draw latest inference result (if available)
     with result_lock:
         if latest_result is not None:
-            detections, keypoints = latest_result
+            detections, keypoints, angles = latest_result
+
             annotated = box_annotator.annotate(annotated, detections)
             annotated = label_annotator.annotate(annotated, detections)
             annotated = keypoint_annotator.annotate(
                 annotated, key_points=keypoints
             )
+
+            # 👇 draw angle text per object
+            for i, angle in enumerate(angles):
+                if angle is None:
+                    continue
+
+                x1, y1, x2, y2 = detections.xyxy[i]
+                class_name = CLASS_NAMES.get(detections.class_id[i], "obj")
+
+                text = f"{class_name}: {angle:.1f}°"
+
+                cv2.putText(
+                    annotated,
+                    text,
+                    (int(x1), int(y1) - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 255, 0),
+                    2,
+                    cv2.LINE_AA
+                )
 
     cv2.imshow("Live (Async Inference)", annotated)
 
