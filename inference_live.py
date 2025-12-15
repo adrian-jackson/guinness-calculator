@@ -37,7 +37,10 @@ while True:
 
         annotated = box_annotator.annotate(frame.copy(), detections)
         annotated = label_annotator.annotate(annotated, detections)
-        annotated = keypoint_annotator.annotate(annotated, key_points=keypoints)
+        #annotated = keypoint_annotator.annotate(annotated, key_points=keypoints)
+        for kp in keypoints.xy:
+            for x, y in kp:
+                cv2.circle(frame, (int(x), int(y)), 4, (0, 255, 0), -1)
 
     cv2.imshow("Live", annotated)
 
