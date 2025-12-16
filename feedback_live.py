@@ -27,6 +27,10 @@ box_annotator = sv.BoxAnnotator()
 label_annotator = sv.LabelAnnotator()
 keypoint_annotator = sv.VertexAnnotator(radius=5, color=sv.Color.GREEN)
 
+target_fps = 2
+period = 1/target_fps
+next_t = time.perf_counter()
+
 latest_frame = None
 latest_pose_result = None
 latest_fill_result = None
@@ -85,12 +89,12 @@ def fill_inference_loop():
                     liquid_pixels += area
 
             if liquid_pixels > 0:
-                fill_ratios[i] = liquid_pixels / foam_pixels
+                fill_ratios[i] =  foam_pixels / liquid_pixels
             print('total pixels', total_pixels, '\nliquid pixels', liquid_pixels, '\nfoam pixels', foam_pixels)
         with fill_lock:
             latest_fill_result = fill_ratios
 
-        time.sleep(0.5)  # segmentation is intentionally slow
+        time.sleep(2)  # segmentation is intentionally slow
 
 def pose_inference_loop():
     global latest_pose_result
@@ -137,6 +141,12 @@ pose_thread.start()
 fill_thread.start()
 
 while True:
+
+    now = time.perf_counter()
+    if now < next_t:
+        time.sleep(next_t - now)
+    next_t += period
+
     ret, frame = cap.read()
     if not ret:
         break
@@ -171,10 +181,10 @@ while True:
                     glass_idx = i
 
             if can_idx is None or glass_idx is None:
-                continue
-
-            can_angle = angles[can_idx]
-            glass_angle = angles[glass_idx]
+                pass
+            else:
+                can_angle = angles[can_idx]
+                glass_angle = angles[glass_idx]
 
             ratio = fill_ratios.get(glass_idx)
             if ratio is None:
@@ -184,10 +194,10 @@ while True:
             adjusted_angle = abs(can_angle) - (90 - abs(glass_angle))
 
             # --- feedback rules ---
-            if 135 <= adjusted_angle <= 180 and ratio >= 4.5:
+            if 135 <= adjusted_angle <= 180 :#and ratio >= 0.22:
                 feedback = "Too much liquid — tilt MORE"
 
-            elif 90 <= adjusted_angle <= 135 and ratio < 4.0:
+            elif 90 <= adjusted_angle <= 135: # and ratio < 0.25:
                 feedback = "Too much foam — tilt LESS"
 
             else:

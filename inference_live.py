@@ -13,6 +13,7 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 640)
 cap.set(cv2.CAP_PROP_FPS, 5)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
+
 pose_model = get_model(
     model_id="pose_calculator/14",
     api_key="YB4rtgGaV7id93lETrRc"
@@ -31,6 +32,10 @@ latest_frame = None
 latest_pose_result = None
 latest_fill_result = None
 running = True
+
+target_fps = 5
+period = 1/target_fps
+next_t = time.perf_counter()
 
 frame_lock = threading.Lock()
 pose_lock = threading.Lock()
@@ -65,7 +70,7 @@ def fill_inference_loop():
             if roi.size == 0:
                 continue
 
-            seg_results = fill_model.infer(roi, confidence=0.4)[0]
+            seg_results = fill_model.infer(roi, confidence=0.25)[0]
             seg_det = sv.Detections.from_inference(seg_results)
 
             total_pixels = 0
@@ -134,6 +139,11 @@ pose_thread.start()
 fill_thread.start()
 
 while True:
+    now = time.perf_counter()
+    if now < next_t:
+        time.sleep(next_t - now)
+    next_t += period
+
     ret, frame = cap.read()
     if not ret:
         break
