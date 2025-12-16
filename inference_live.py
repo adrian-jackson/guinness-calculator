@@ -19,7 +19,7 @@ pose_model = get_model(
 )
 
 fill_model = get_model(
-    model_id="fill_calculator/2",
+    model_id="fill_calculator/3",
     api_key="YB4rtgGaV7id93lETrRc"
 )
 
