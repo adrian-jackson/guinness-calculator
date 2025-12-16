@@ -14,7 +14,7 @@ cap.set(cv2.CAP_PROP_FPS, 5)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 pose_model = get_model(
-    model_id="pose_calculator/10",
+    model_id="pose_calculator/14",
     api_key="YB4rtgGaV7id93lETrRc"
 )
 
@@ -65,7 +65,7 @@ def fill_inference_loop():
             if roi.size == 0:
                 continue
 
-            seg_results = fill_model.infer(roi, confidence=0.6)[0]
+            seg_results = fill_model.infer(roi, confidence=0.75)[0]
             seg_det = sv.Detections.from_inference(seg_results)
 
             total_pixels = 0
@@ -83,7 +83,7 @@ def fill_inference_loop():
 
             if total_pixels > 0:
                 fill_ratios[i] = liquid_pixels / total_pixels
-
+            print('\ntotal pixels', total_pixels, '\n\nliquid pixels\n', liquid_pixels)
         with fill_lock:
             latest_fill_result = fill_ratios
 
@@ -98,7 +98,7 @@ def pose_inference_loop():
                 continue
             frame = latest_frame.copy()
 
-        results = pose_model.infer(frame, confidence=0.75)[0]
+        results = pose_model.infer(frame, confidence=0.6)[0]
         detections = sv.Detections.from_inference(results)
         keypoints = sv.KeyPoints.from_inference(results)
 
