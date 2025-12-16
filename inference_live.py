@@ -65,7 +65,7 @@ def fill_inference_loop():
             if roi.size == 0:
                 continue
 
-            seg_results = fill_model.infer(roi, confidence=0.75)[0]
+            seg_results = fill_model.infer(roi, confidence=0.4)[0]
             seg_det = sv.Detections.from_inference(seg_results)
 
             total_pixels = 0
@@ -98,7 +98,7 @@ def pose_inference_loop():
                 continue
             frame = latest_frame.copy()
 
-        results = pose_model.infer(frame, confidence=0.6)[0]
+        results = pose_model.infer(frame, confidence=0.7)[0]
         detections = sv.Detections.from_inference(results)
         keypoints = sv.KeyPoints.from_inference(results)
 
@@ -160,11 +160,15 @@ while True:
                 if angle is None:
                     continue
 
+                class_name = POSE_CLASSES.get(detections.class_id[i])
                 x1, y1, _, _ = detections.xyxy[i]
-                text = f"{POSE_CLASSES[detections.class_id[i]]}: {angle:.1f}°"
 
-                if i in fill_ratios:
-                    text += f" | Fill: {fill_ratios[i]*100:.0f}%"
+                # Base text: angle (for can & glass)
+                text = f"{class_name}: {angle:.1f}°"
+
+                # Attach fill % ONLY if this detection is a glass
+                if class_name == "glass" and i in fill_ratios:
+                    text += f" | Fill: {fill_ratios[i] * 100:.0f}%"
 
                 cv2.putText(
                     annotated,
