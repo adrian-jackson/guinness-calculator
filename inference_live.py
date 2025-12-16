@@ -1,3 +1,5 @@
+#TO DO: Use pose bb to crop ROIs before segmentation for fill:
+
 from inference import get_model
 import supervision as sv
 import cv2
@@ -7,12 +9,17 @@ import time
 
 cap = cv2.VideoCapture(0)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 640)
 cap.set(cv2.CAP_PROP_FPS, 5)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-model = get_model(
-    model_id="pose_calculator/7",
+pose_model = get_model(
+    model_id="pose_calculator/10",
+    api_key="YB4rtgGaV7id93lETrRc"
+)
+
+fill_model = get_model(
+    model_id="fill_calculator/2",
     api_key="YB4rtgGaV7id93lETrRc"
 )
 
@@ -21,19 +28,19 @@ label_annotator = sv.LabelAnnotator()
 keypoint_annotator = sv.VertexAnnotator(radius=5, color=sv.Color.GREEN)
 
 latest_frame = None
-latest_result = None
+latest_pose_result = None
+latest_fill_result = None
 running = True
 
 frame_lock = threading.Lock()
-result_lock = threading.Lock()
+pose_lock = threading.Lock()
+fill_lock = threading.Lock()
 
-CLASS_NAMES = {
-    0: "can",
-    1: "glass"
-}
+POSE_CLASSES = {0: "can", 1: "glass"}
+FILL_CLASSES = {0: "empty", 1: "foam", 2: "liquid"}
 
-def inference_loop():
-    global latest_result
+def fill_inference_loop():
+    global latest_fill_result
 
     while running:
         with frame_lock:
@@ -41,25 +48,70 @@ def inference_loop():
                 continue
             frame = latest_frame.copy()
 
-        results = model.infer(frame, confidence=0.75)[0]
+        with pose_lock:
+            if latest_pose_result is None:
+                continue
+            detections, _, _ = latest_pose_result
 
+        fill_ratios = {}
+
+        for i in range(len(detections)):
+            if POSE_CLASSES.get(detections.class_id[i]) != "glass":
+                continue
+
+            x1, y1, x2, y2 = detections.xyxy[i].astype(int)
+            roi = frame[y1:y2, x1:x2]
+
+            if roi.size == 0:
+                continue
+
+            seg_results = fill_model.infer(roi, confidence=0.6)[0]
+            seg_det = sv.Detections.from_inference(seg_results)
+
+            total_pixels = 0
+            liquid_pixels = 0
+
+            for j in range(len(seg_det)):
+                class_name = FILL_CLASSES.get(seg_det.class_id[j])
+                mask = seg_det.mask[j]
+
+                area = int(mask.sum())
+                total_pixels += area
+
+                if class_name == "liquid":
+                    liquid_pixels += area
+
+            if total_pixels > 0:
+                fill_ratios[i] = liquid_pixels / total_pixels
+
+        with fill_lock:
+            latest_fill_result = fill_ratios
+
+        time.sleep(0.5)  # segmentation is intentionally slow
+
+def pose_inference_loop():
+    global latest_pose_result
+
+    while running:
+        with frame_lock:
+            if latest_frame is None:
+                continue
+            frame = latest_frame.copy()
+
+        results = pose_model.infer(frame, confidence=0.75)[0]
         detections = sv.Detections.from_inference(results)
         keypoints = sv.KeyPoints.from_inference(results)
 
-        angles = []  # one angle per detection
+        angles = []
 
         for i in range(len(detections)):
-            class_id = detections.class_id[i]
-            class_name = CLASS_NAMES.get(class_id)
+            class_name = POSE_CLASSES.get(detections.class_id[i])
 
-            # Only compute for can & glass
             if class_name not in ("can", "glass"):
                 angles.append(None)
                 continue
 
             kp = keypoints.xy[i]
-
-            # Safety check
             if kp.shape[0] < 2:
                 angles.append(None)
                 continue
@@ -67,20 +119,19 @@ def inference_loop():
             x1, y1 = kp[0]
             x2, y2 = kp[1]
 
-            dx = x2 - x1
-            dy = y2 - y1
+            angle = np.degrees(np.atan2(y2 - y1, x2 - x1))
+            angles.append(angle)
 
-            angle_deg = np.degrees(np.atan2(dy, dx))
-            angles.append(angle_deg)
-
-        with result_lock:
-            latest_result = (detections, keypoints, angles)
+        with pose_lock:
+            latest_pose_result = (detections, keypoints, angles)
 
         time.sleep(0.001)
 
 # Start inference thread
-thread = threading.Thread(target=inference_loop, daemon=True)
-thread.start()
+pose_thread = threading.Thread(target=pose_inference_loop, daemon=True)
+fill_thread = threading.Thread(target=fill_inference_loop, daemon=True)
+pose_thread.start()
+fill_thread.start()
 
 while True:
     ret, frame = cap.read()
@@ -92,9 +143,9 @@ while True:
 
     annotated = frame.copy()
 
-    with result_lock:
-        if latest_result is not None:
-            detections, keypoints, angles = latest_result
+    with pose_lock:
+        if latest_pose_result is not None:
+            detections, keypoints, angles = latest_pose_result
 
             annotated = box_annotator.annotate(annotated, detections)
             annotated = label_annotator.annotate(annotated, detections)
@@ -102,15 +153,18 @@ while True:
                 annotated, key_points=keypoints
             )
 
-            # 👇 draw angle text per object
+            with fill_lock:
+                fill_ratios = latest_fill_result or {}
+
             for i, angle in enumerate(angles):
                 if angle is None:
                     continue
 
-                x1, y1, x2, y2 = detections.xyxy[i]
-                class_name = CLASS_NAMES.get(detections.class_id[i], "obj")
+                x1, y1, _, _ = detections.xyxy[i]
+                text = f"{POSE_CLASSES[detections.class_id[i]]}: {angle:.1f}°"
 
-                text = f"{class_name}: {angle:.1f}°"
+                if i in fill_ratios:
+                    text += f" | Fill: {fill_ratios[i]*100:.0f}%"
 
                 cv2.putText(
                     annotated,
@@ -129,6 +183,7 @@ while True:
         break
 
 running = False
-thread.join(timeout=1.0)
+pose_thread.join(timeout=1.0)
+fill_thread.join(timeout=1.0)
 cap.release()
 cv2.destroyAllWindows()
