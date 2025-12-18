@@ -24,12 +24,12 @@ cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 # -----------------------
 pose_model = get_model(
     model_id="pose_calculator/11",
-    api_key="YB4rtgGaV7id93lETrRc"
+    api_key="API_KEY"
 )
 
 fill_model = get_model(
     model_id="fill_calculator/3",
-    api_key="YB4rtgGaV7id93lETrRc"
+    api_key="API_KEY"
 )
 
 # -----------------------
